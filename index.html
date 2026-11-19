@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Impresor de hojas membretadas</title>
+<style id="pageStyle"></style>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+ <div>
+  <h1>Impresor de hojas membretadas</h1>
+  <p>Escribe los datos y se imprimen justo en los campos de tu hoja ya impresa. Si un texto no cabe, se reduce solo.</p>
+ </div>
+ <div class="modes" role="group" aria-label="Modo"><button id="mfill" aria-pressed="true">Llenar</button><button id="medit" aria-pressed="false">Configurar formato</button></div>
+ <button id="print" class="pri">Imprimir hoja</button>
+</header>
+<main class="app">
+ <aside class="panel">
+  <section>
+   <h2>Formato</h2>
+   <select id="tsel" aria-label="Formato guardado"></select>
+   <input class="eo" id="tname" placeholder="Nombre del formato" aria-label="Nombre del formato" style="margin-top:6px">
+   <div class="btns eo"><button id="tnew">Nuevo</button><button id="tdup">Duplicar</button><button id="tdel">Eliminar</button></div>
+   <p class="s eo">Cada formato guarda su tamaño de hoja, sus campos y su ajuste. Se conservan en este navegador.</p>
+  </section>
+  <section class="fo">
+   <h2>Datos para imprimir</h2>
+   <p class="s" style="margin:0 0 12px">Escribe en cada recuadro y verás el texto en la hoja. Enter pasa al siguiente campo.</p>
+   <div id="fill"></div>
+   <button id="fprint" class="pri big">Imprimir hoja</button>
+   <div class="btns"><button id="fclear">Borrar todo</button></div>
+   <p class="s">¿Los textos caen en otro lugar? Usa «Configurar formato» para mover los campos.</p>
+  </section>
+  <section class="eo">
+   <h2>Hoja y ajuste de impresora</h2>
+   <div class="g">
+    <label>Tamaño de hoja<select id="psize"></select></label>
+    <label class="ck"><input type="checkbox" id="pland">Horizontal</label>
+    <label>Ancho (mm)<input id="pw" type="number" step="0.5" min="30"></label>
+    <label>Alto (mm)<input id="ph" type="number" step="0.5" min="30"></label>
+    <label>Tipografía<select id="pfont"></select></label>
+    <label>Tamaño mínimo (pt)<input id="pmin" type="number" step="0.5" min="3"></label>
+    <label>Mover todo en X (mm)<input id="pox" type="number" step="0.5"></label>
+    <label>Mover todo en Y (mm)<input id="poy" type="number" step="0.5"></label>
+   </div>
+   <p class="s">Si tu impresora corre todo unos milímetros, corrígelo con «Mover todo». Imprime una prueba con marcos sobre papel blanco y compárala a contraluz con tu hoja.</p>
+  </section>
+  <section class="eo">
+   <h2>Campos</h2>
+   <div id="fl"></div>
+   <button id="addf">+ Agregar campo</button>
+  </section>
+  <section class="eo">
+   <h2>Guía visual</h2>
+   <label>Escaneo o foto de tu hoja membretada (solo para colocar campos, no se imprime)<input id="bgfile" type="file" accept="image/*"></label>
+   <label style="margin-top:8px">Visibilidad de la guía<input id="bgop" type="range" min="10" max="100" value="55"></label>
+   <p class="s">La imagen se estira al tamaño completo de la hoja. Se pierde al cerrar la página.</p>
+  </section>
+  <section class="eo">
+   <details>
+    <summary>Respaldar o compartir este formato</summary>
+    <textarea id="jbox" placeholder="Aquí aparece el formato exportado. Para importar, pega el texto y pulsa Importar." aria-label="Formato en texto"></textarea>
+    <div class="btns"><button id="jexp">Exportar</button><button id="jimp">Importar</button><button id="jrepo">Copiar formatos.js</button></div>
+    <p class="s">«Copiar formatos.js» genera el archivo con todos tus formatos para que se abran por defecto al subirlos a un repositorio.</p>
+    <p class="s" id="msg" role="status"></p>
+   </details>
+  </section>
+ </aside>
+ <section class="stage" id="stage">
+  <div class="meta">
+   <span id="dims"></span>
+   <label class="eo"><input type="checkbox" id="showbox" checked>Mostrar marcos</label>
+   <label class="eo"><input type="checkbox" id="printguides">Imprimir marcos (hoja de prueba)</label>
+  </div>
+  <div id="wrap"><div id="scaler"><div id="sheet" class="show"><img class="bg" alt="" hidden></div></div></div>
+  <p class="hint fo">Haz clic en un campo de la hoja para escribir en él. Al imprimir elige escala 100 % y sin márgenes.</p>
+  <p class="hint eo">Arrastra un campo para moverlo y usa su esquina inferior derecha para cambiar el tamaño. Si el diálogo de impresión no se abre aquí, abre el enlace en una pestaña nueva y usa Ctrl+P. En el diálogo elige escala 100 % y sin márgenes.</p>
+ </section>
+</main>
+<script src="formatos.js"></script>
+<script>
+const MM=96/25.4,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const SZ={carta:['Carta',215.9,279.4],mcarta:['Media carta',139.7,215.9],oficio:['Oficio (México)',215.9,340],legal:['Legal',215.9,355.6],a4:['A4',210,297],a5:['A5',148,210],custom:['Personalizado',0,0]};
+const FONTS=[['Arial, Helvetica, sans-serif','Arial'],['"Times New Roman", Times, serif','Times New Roman'],['"Courier New", monospace','Courier New (máquina de escribir)'],['Georgia, serif','Georgia'],['Verdana, sans-serif','Verdana']];
+const uid=()=>Math.random().toString(36).slice(2,8);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let db={cur:null,list:[]},sel=null,SC=1,bgURL='';
+const sheet=$('#sheet');
+
+function blank(name){return{id:uid(),name,size:'carta',w:215.9,h:279.4,land:0,font:FONTS[0][0],ox:0,oy:0,min:6,fields:[]}}
+function newField(o){return Object.assign({id:uid(),l:'Campo nuevo',v:'',x:20,y:20,w:60,h:7,s:11,al:'left',b:0,u:0,m:0},o)}
+function sample(){
+ const t=blank('Oficio de ejemplo (Carta)');
+ t.fields=[
+  newField({l:'Fecha',v:'18 de noviembre de 2026',x:130,y:45,w:65,al:'right'}),
+  newField({l:'Destinatario',v:'Nombre del destinatario',x:20,y:58,w:110}),
+  newField({l:'Asunto',v:'Asunto del documento',x:20,y:68,w:175,b:1}),
+  newField({l:'Cuerpo',v:'Escribe aquí el contenido del documento.',x:20,y:85,w:175,h:120,m:1}),
+  newField({l:'Firma',v:'Nombre y cargo',x:20,y:225,w:90})];
+ return t}
+function load(){
+ let had=false;
+ try{const r=localStorage.getItem('membrete-v1');if(r){const d=JSON.parse(r);if(d&&Array.isArray(d.list)&&d.list.length){db=d;had=true}}}catch(e){}
+ const P=window.FORMATOS_PREDETERMINADOS;
+ if(Array.isArray(P)&&P.length){
+  P.forEach(o=>{const id=String(o&&o.id||'').slice(0,40);if(!id||db.list.some(t=>t.id===id))return;const t=clean(o);t.id=id;db.list.push(t)});
+  if(!had&&db.list.length)db.cur=db.list[0].id}
+ if(!db.list.length){const t=sample();db={cur:t.id,list:[t]}}
+ if(!db.list.find(t=>t.id===db.cur))db.cur=db.list[0].id}
+let st;function save(){clearTimeout(st);st=setTimeout(()=>{try{localStorage.setItem('membrete-v1',JSON.stringify(db))}catch(e){}},250)}
+const T=()=>db.list.find(t=>t.id===db.cur);
+const fld=id=>T().fields.find(f=>f.id===id);
+function dims(t){let w,h;if(t.size==='custom'){w=+t.w||100;h=+t.h||100}else{w=SZ[t.size][1];h=SZ[t.size][2]}return t.land?[h,w]:[w,h]}
+function clean(o){
+ const t=blank(String(o.name||'Importado').slice(0,60));
+ t.size=SZ[o.size]?o.size:'carta';t.w=+o.w||215.9;t.h=+o.h||279.4;t.land=o.land?1:0;
+ t.font=FONTS.some(f=>f[0]===o.font)?o.font:FONTS[0][0];t.ox=+o.ox||0;t.oy=+o.oy||0;t.min=Math.max(3,+o.min||6);
+ t.fields=(Array.isArray(o.fields)?o.fields:[]).slice(0,100).map(f=>newField({l:String(f.l||'Campo').slice(0,60),v:String(f.v||'').slice(0,5000),x:+f.x||0,y:+f.y||0,w:Math.max(3,+f.w||40),h:Math.max(3,+f.h||7),s:Math.max(3,+f.s||11),al:['left','center','right'].includes(f.al)?f.al:'left',b:f.b?1:0,u:f.u?1:0,m:f.m?1:0}));
+ return t}
+
+/* ---- hoja ---- */
+function paintField(f){
+ const t=T(),d=sheet.querySelector('.f[data-id="'+f.id+'"]');if(!d)return;
+ const s=d.firstChild,px=p=>p*96/72;
+ Object.assign(d.style,{left:(f.x+t.ox)+'mm',top:(f.y+t.oy)+'mm',width:f.w+'mm',height:f.h+'mm',alignItems:f.m?'flex-start':'center',justifyContent:f.al==='left'?'flex-start':f.al==='right'?'flex-end':'center',fontWeight:f.b?'700':'400'});
+ Object.assign(s.style,{whiteSpace:f.m?'pre-wrap':'nowrap',width:f.m?'100%':'auto',textAlign:f.al,overflowWrap:f.m?'anywhere':'normal'});
+ s.textContent=f.u?String(f.v).toUpperCase():f.v;
+ const min=Math.min(f.s,Math.max(1,t.min)),over=()=>s.offsetWidth>d.clientWidth+.5||s.offsetHeight>d.clientHeight+.5;
+ let p=f.s;s.style.fontSize=px(p)+'px';
+ while(over()&&p>min){p=Math.max(min,p-.25);s.style.fontSize=px(p)+'px'}
+ const bad=over();d.classList.toggle('over',bad);
+ const ns=$$('.card[data-id="'+f.id+'"] [data-note],.fr[data-id="'+f.id+'"] [data-note]');
+ ns.forEach(n=>{const pt=Math.round(p*100)/100;
+  n.className='note '+(bad?'bad':p<f.s?'mid':'ok');
+  n.textContent=!f.v?'Campo vacío':bad?'No cabe: acorta el texto o amplía el campo en «Configurar formato»':p<f.s?'Reducido automáticamente a '+pt+' pt':'Cabe a '+pt+' pt'})}
+function rescale(){
+ const [W,H]=dims(T()),wp=W*MM,hp=H*MM,av=$('#stage').clientWidth-4;
+ SC=Math.max(.2,Math.min(1.3,av/wp));
+ $('#scaler').style.transform='scale('+SC+')';
+ $('#wrap').style.width=wp*SC+'px';$('#wrap').style.height=hp*SC+'px'}
+function renderSheet(){
+ const t=T(),[W,H]=dims(t);
+ sheet.style.width=W+'mm';sheet.style.height=H+'mm';sheet.style.setProperty('--h',H+'mm');sheet.style.fontFamily=t.font;
+ $('#pageStyle').textContent='@page{size:'+W+'mm '+H+'mm;margin:0}';
+ $('#dims').textContent=(t.size==='custom'?'Personalizado':SZ[t.size][0])+' · '+Math.round(W*10)/10+' × '+Math.round(H*10)/10+' mm';
+ $$('#sheet .f').forEach(e=>e.remove());
+ t.fields.forEach(f=>{const d=document.createElement('div');d.className='f'+(f.id===sel?' sel':'');d.dataset.id=f.id;d.innerHTML='<span></span><i class="rz"></i>';sheet.appendChild(d)});
+ rescale();t.fields.forEach(paintField)}
+
+/* ---- panel ---- */
+const num=(k,l,v)=>'<label>'+l+'<input type="number" step="0.5" data-k="'+k+'" value="'+v+'"></label>';
+const ck=(k,l,v)=>'<label class="ck"><input type="checkbox" data-k="'+k+'"'+(v?' checked':'')+'>'+l+'</label>';
+function card(f){return '<div class="card'+(f.id===sel?' sel':'')+'" data-id="'+f.id+'"><div class="r"><input class="lbl" data-k="l" value="'+esc(f.l)+'" aria-label="Nombre del campo"><button class="x" data-act="del" title="Eliminar campo" aria-label="Eliminar campo">✕</button></div><textarea data-k="v" rows="'+(f.m?4:1)+'" aria-label="Contenido del campo">'+esc(f.v)+'</textarea><div class="note" data-note></div><details'+(f.id===sel?' open':'')+'><summary>Posición y estilo</summary><div class="g">'+num('x','X (mm)',f.x)+num('y','Y (mm)',f.y)+num('w','Ancho (mm)',f.w)+num('h','Alto (mm)',f.h)+num('s','Tamaño (pt)',f.s)+'<label>Alineación<select data-k="al">'+[['left','Izquierda'],['center','Centro'],['right','Derecha']].map(a=>'<option value="'+a[0]+'"'+(f.al===a[0]?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></label>'+ck('m','Varias líneas',f.m)+ck('u','Mayúsculas',f.u)+ck('b','Negrita',f.b)+'</div></details></div>'}
+function renderPanel(){
+ const t=T();
+ $('#tsel').innerHTML=db.list.map(x=>'<option value="'+x.id+'"'+(x.id===t.id?' selected':'')+'>'+esc(x.name)+'</option>').join('');
+ $('#tname').value=t.name;$('#psize').value=t.size;$('#pw').value=t.w;$('#ph').value=t.h;
+ $('#pw').disabled=$('#ph').disabled=t.size!=='custom';
+ $('#pland').checked=!!t.land;$('#pfont').value=t.font;$('#pox').value=t.ox;$('#poy').value=t.oy;$('#pmin').value=t.min;
+ $('#fl').innerHTML=t.fields.map(card).join('')}
+function renderAll(){renderPanel();renderFill();renderSheet()}
+function selectField(id,open){
+ sel=id;
+ $$('.card').forEach(c=>{const on=c.dataset.id===id;c.classList.toggle('sel',on);if(on&&open){c.querySelector('details').open=true;c.scrollIntoView({block:'nearest',behavior:'smooth'})}});
+ $$('#sheet .f').forEach(d=>d.classList.toggle('sel',d.dataset.id===id))}
+
+/* ---- eventos: campos ---- */
+$('#fl').addEventListener('input',e=>{
+ const el=e.target,k=el.dataset.k,c=el.closest('.card');if(!k||!c)return;
+ const f=fld(c.dataset.id);
+ let v=el.type==='checkbox'?(el.checked?1:0):el.type==='number'?(parseFloat(el.value)||0):el.value;
+ if(['w','h','s'].includes(k))v=Math.max(1,v);
+ f[k]=v;if(k==='m')c.querySelector('textarea').rows=v?4:1;
+ paintField(f);save()});
+$('#fl').addEventListener('focusin',e=>{const c=e.target.closest('.card');if(c&&c.dataset.id!==sel)selectField(c.dataset.id,false)});
+$('#fl').addEventListener('click',e=>{
+ if(e.target.dataset.act!=='del')return;
+ const c=e.target.closest('.card'),t=T();t.fields=t.fields.filter(f=>f.id!==c.dataset.id);
+ if(sel===c.dataset.id)sel=null;renderSheet();c.remove();save()});
+$('#addf').onclick=()=>{const f=newField({});T().fields.push(f);sel=f.id;renderAll();selectField(f.id,true);save()};
+
+/* ---- arrastrar y redimensionar ---- */
+let drag=null;
+sheet.addEventListener('pointerdown',e=>{
+ const d=e.target.closest('.f');if(!d)return;
+ const f=fld(d.dataset.id);
+ if(mode==='fill'){const i=document.querySelector('#fill [data-fid="'+f.id+'"]');if(i){i.focus();i.scrollIntoView({block:'center',behavior:'smooth'})}e.preventDefault();return}
+ selectField(f.id,true);
+ drag={f,rz:e.target.classList.contains('rz'),sx:e.clientX,sy:e.clientY,x:f.x,y:f.y,w:f.w,h:f.h};
+ sheet.setPointerCapture(e.pointerId);e.preventDefault()});
+sheet.addEventListener('pointermove',e=>{
+ if(!drag)return;
+ const k=SC*MM,dx=(e.clientX-drag.sx)/k,dy=(e.clientY-drag.sy)/k,r=v=>Math.round(v*2)/2,f=drag.f;
+ if(drag.rz){f.w=Math.max(3,r(drag.w+dx));f.h=Math.max(3,r(drag.h+dy))}else{f.x=r(drag.x+dx);f.y=r(drag.y+dy)}
+ const c=document.querySelector('.card[data-id="'+f.id+'"]');
+ if(c)['x','y','w','h'].forEach(q=>{c.querySelector('[data-k="'+q+'"]').value=f[q]});
+ paintField(f)});
+const endDrag=()=>{if(drag){drag=null;save()}};
+sheet.addEventListener('pointerup',endDrag);sheet.addEventListener('pointercancel',endDrag);
+
+/* ---- formatos ---- */
+$('#tsel').onchange=e=>{db.cur=e.target.value;sel=null;renderAll();save()};
+$('#tname').oninput=e=>{const t=T();t.name=e.target.value;const o=$('#tsel').selectedOptions[0];if(o)o.textContent=t.name||'Sin nombre';save()};
+$('#tnew').onclick=()=>{const t=blank('Formato nuevo');db.list.push(t);db.cur=t.id;sel=null;renderAll();$('#tname').select();save()};
+$('#tdup').onclick=()=>{const t=clean(JSON.parse(JSON.stringify(T())));t.name=T().name+' (copia)';db.list.push(t);db.cur=t.id;sel=null;renderAll();save()};
+let dc=0;
+$('#tdel').onclick=function(){
+ if(!dc){this.textContent='¿Seguro?';dc=setTimeout(()=>{dc=0;this.textContent='Eliminar'},3000);return}
+ clearTimeout(dc);dc=0;this.textContent='Eliminar';
+ db.list=db.list.filter(t=>t.id!==db.cur);if(!db.list.length)db.list.push(blank('Formato nuevo'));
+ db.cur=db.list[0].id;sel=null;renderAll();save()};
+
+/* ---- hoja y calibración ---- */
+$('#psize').innerHTML=Object.keys(SZ).map(k=>'<option value="'+k+'">'+SZ[k][0]+'</option>').join('');
+$('#pfont').innerHTML=FONTS.map(f=>'<option value="'+esc(f[0])+'">'+f[1]+'</option>').join('');
+$('#psize').onchange=e=>{
+ const t=T();
+ if(e.target.value==='custom'&&t.size!=='custom'){t.w=SZ[t.size][1];t.h=SZ[t.size][2]}
+ t.size=e.target.value;renderPanel();renderSheet();save()};
+const bind=(id,k,kind)=>$('#'+id).addEventListener('input',e=>{
+ const t=T(),v=e.target;
+ t[k]=kind==='b'?(v.checked?1:0):kind==='n'?(parseFloat(v.value)||0):v.value;
+ renderSheet();save()});
+bind('pw','w','n');bind('ph','h','n');bind('pland','land','b');bind('pfont','font','s');bind('pox','ox','n');bind('poy','oy','n');bind('pmin','min','n');
+$('#showbox').onchange=e=>sheet.classList.toggle('show',e.target.checked);
+$('#printguides').onchange=e=>sheet.classList.toggle('pg',e.target.checked);
+
+/* ---- guía visual ---- */
+function applyBg(){const i=$('.bg');i.hidden=!bgURL;if(bgURL)i.src=bgURL;i.style.opacity=$('#bgop').value/100}
+$('#bgfile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{bgURL=r.result;applyBg()};r.readAsDataURL(f)};
+$('#bgop').oninput=applyBg;
+
+/* ---- respaldo ---- */
+let mt;const say=m=>{$('#msg').textContent=m;clearTimeout(mt);mt=setTimeout(()=>$('#msg').textContent='',5000)};
+$('#jexp').onclick=()=>{
+ const o=JSON.parse(JSON.stringify(T()));delete o.id;const s=JSON.stringify(o);
+ const b=$('#jbox');b.value=s;b.focus();b.select();
+ try{navigator.clipboard.writeText(s).then(()=>say('Formato copiado al portapapeles.'),()=>say('Copia el texto seleccionado con Ctrl+C.'))}catch(x){say('Copia el texto seleccionado con Ctrl+C.')}};
+$('#jimp').onclick=()=>{
+ try{const o=JSON.parse($('#jbox').value),arr=Array.isArray(o.list)?o.list:[o];
+  arr.forEach(x=>{const t=clean(x);db.list.push(t);db.cur=t.id});
+  sel=null;renderAll();save();say('Formato importado.')}catch(x){say('El texto no es un formato válido.')}};
+
+$('#jrepo').onclick=()=>{
+ const s='// Formatos predeterminados. Generado desde el Impresor de hojas membretadas.\nwindow.FORMATOS_PREDETERMINADOS = '+JSON.stringify(db.list,null,1)+';\n';
+ const b=$('#jbox');b.value=s;b.focus();b.select();
+ try{navigator.clipboard.writeText(s).then(()=>say('Copiado. Pégalo dentro de formatos.js.'),()=>say('Copia el texto seleccionado con Ctrl+C.'))}catch(x){say('Copia el texto seleccionado con Ctrl+C.')}};
+
+/* ---- imprimir ---- */
+$('#print').onclick=()=>{try{window.print()}catch(e){alert('No se pudo abrir la impresión aquí. Abre el enlace en una pestaña nueva y usa Ctrl+P.')}};
+
+if('ResizeObserver' in window)new ResizeObserver(rescale).observe($('#stage'));else addEventListener('resize',rescale);
+/* ---- modo llenar ---- */
+let mode='fill';
+function renderFill(){
+ const t=T();
+ $('#fill').innerHTML=t.fields.length?t.fields.map(f=>'<div class="fr" data-id="'+f.id+'"><label>'+esc(f.l)+(f.m?'<textarea':'<input')+' data-fid="'+f.id+'" autocomplete="off"'+(f.m?' rows="5">'+esc(f.v)+'</textarea>':' value="'+esc(f.v)+'">')+'</label><div class="note" data-note></div></div>').join(''):'<p class="s">Este formato no tiene campos. Pulsa «Configurar formato» para agregarlos.</p>'}
+$('#fill').addEventListener('input',e=>{const id=e.target.dataset.fid;if(!id)return;const f=fld(id);f.v=e.target.value;paintField(f);save()});
+$('#fill').addEventListener('focusin',e=>{const id=e.target.dataset.fid;if(id&&id!==sel)selectField(id,false)});
+$('#fill').addEventListener('keydown',e=>{
+ if(e.key!=='Enter'||e.target.tagName!=='INPUT')return;
+ e.preventDefault();const all=$$('#fill [data-fid]'),i=all.indexOf(e.target);(all[i+1]||all[0]).focus()});
+function setMode(m){
+ mode=m;const fill=m==='fill';
+ document.body.classList.toggle('fill',fill);
+ sheet.classList.toggle('fillmode',fill);
+ sheet.classList.toggle('show',!fill&&$('#showbox').checked);
+ $('#mfill').setAttribute('aria-pressed',fill);$('#medit').setAttribute('aria-pressed',!fill);
+ if(fill)renderFill();else renderPanel();
+ renderSheet()}
+$('#mfill').onclick=()=>setMode('fill');$('#medit').onclick=()=>setMode('edit');
+let cc=0;
+$('#fclear').onclick=function(){
+ if(!cc){this.textContent='¿Borrar todos los datos?';cc=setTimeout(()=>{cc=0;this.textContent='Borrar todo'},3000);return}
+ clearTimeout(cc);cc=0;this.textContent='Borrar todo';
+ T().fields.forEach(f=>f.v='');renderFill();renderSheet();save()};
+$('#fprint').onclick=()=>$('#print').click();
+load();renderAll();setMode('fill');
+</script>
+</body>
+</html>
